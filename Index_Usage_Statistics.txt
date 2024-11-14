@@ -1,0 +1,90 @@
+Basic Index Information:
+
+SELECT 
+    t.name AS TableName,
+    i.name AS IndexName,
+    i.type_desc AS IndexType,
+    i.is_unique AS IsUnique,
+    i.is_primary_key AS IsPrimaryKey,
+    i.is_unique_constraint AS IsUniqueConstraint,
+    i.fill_factor AS FillFactor,
+    i.allow_row_locks AS AllowRowLocks,
+    i.allow_page_locks AS AllowPageLocks
+FROM 
+    sys.indexes i
+INNER JOIN 
+    sys.tables t ON i.object_id = t.object_id
+ORDER BY 
+    t.name, i.name;
+
+Index Usage Statistics:
+
+SELECT 
+    t.name AS TableName,
+    i.name AS IndexName,
+    us.user_seeks AS Seeks,
+    us.user_scans AS Scans,
+    us.user_lookups AS Lookups,
+    us.user_updates AS Updates,
+    us.last_user_seek AS LastSeek,
+    us.last_user_scan AS LastScan,
+    us.last_user_lookup AS LastLookup,
+    us.last_user_update AS LastUpdate
+FROM 
+    sys.indexes i
+INNER JOIN 
+    sys.tables t ON i.object_id = t.object_id
+LEFT JOIN 
+    sys.dm_db_index_usage_stats us ON i.object_id = us.object_id AND i.index_id = us.index_id
+ORDER BY 
+    t.name, i.name;
+
+
+Index Fragmentation:
+
+SELECT 
+    t.name AS TableName,
+    i.name AS IndexName,
+    ixavg.avg_fragmentation_in_percent AS FragmentationPercentage,
+    ixavg.avg_page_space_used_in_percent AS PageSpaceUsedPercentage,
+    ixavg.avg_record_size_in_bytes AS AvgRecordSizeBytes,
+    ixavg.page_count AS PageCount
+FROM 
+    sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, NULL) ixavg
+INNER JOIN 
+    sys.indexes i ON ixavg.object_id = i.object_id AND ixavg.index_id = i.index_id
+INNER JOIN 
+    sys.tables t ON i.object_id = t.object_id
+WHERE 
+    ixavg.index_id > 0 -- Exclude heaps (tables without clustered indexes)
+ORDER BY 
+    FragmentationPercentage DESC;
+
+
+
+-- Rebuild index recommendations
+
+
+SELECT 
+    t.name AS TableName,
+    i.name AS IndexName,
+    ixavg.avg_fragmentation_in_percent AS FragmentationPercentage,
+    CASE 
+        WHEN ixavg.avg_fragmentation_in_percent > 30 THEN 'Rebuild Index'
+        WHEN ixavg.avg_fragmentation_in_percent BETWEEN 10 AND 30 THEN 'Reorganize Index'
+        ELSE 'No Action Required'
+    END AS MaintenanceRecommendation
+FROM 
+    sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, 'LIMITED') ixavg
+INNER JOIN 
+    sys.indexes i ON ixavg.object_id = i.object_id AND ixavg.index_id = i.index_id
+INNER JOIN 
+    sys.tables t ON i.object_id = t.object_id
+WHERE 
+    ixavg.index_id > 0 -- Exclude heaps
+ORDER BY 
+    FragmentationPercentage DESC;
+
+
+
+
