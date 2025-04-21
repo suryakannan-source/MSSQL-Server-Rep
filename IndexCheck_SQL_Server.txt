@@ -102,4 +102,78 @@ ORDER BY idx.total_size_MB DESC;
 
 
 
+Unused Index and sizes......
+
+
+
+WITH IndexSize AS (
+    SELECT 
+        i.object_id,
+        i.index_id,
+        i.name AS index_name,
+        OBJECT_NAME(i.object_id) AS table_name,
+        i.type_desc AS index_type,
+        i.is_unique,
+        i.is_primary_key,
+        ps.reserved_page_count * 8.0 / 1024 AS total_size_MB,
+        ps.used_page_count * 8.0 / 1024 AS used_size_MB,
+        (ps.reserved_page_count - ps.used_page_count) * 8.0 / 1024 AS unused_size_MB
+    FROM sys.indexes i
+    JOIN sys.dm_db_partition_stats ps 
+        ON i.object_id = ps.object_id 
+        AND i.index_id = ps.index_id
+    WHERE 
+        i.type_desc <> 'HEAP'
+        AND OBJECTPROPERTY(i.object_id, 'IsUserTable') = 1
+),
+Usage AS (
+    SELECT 
+        object_id,
+        index_id,
+        user_seeks,
+        user_scans,
+        user_lookups,
+        user_updates,
+        last_user_seek,
+        last_user_scan,
+        last_user_lookup
+    FROM sys.dm_db_index_usage_stats
+    WHERE database_id = DB_ID()
+)
+SELECT 
+    s.table_name,
+    s.index_name,
+    s.index_type,
+    s.is_unique,
+    s.is_primary_key,
+    ISNULL(u.user_seeks, 0) AS seeks,
+    ISNULL(u.user_scans, 0) AS scans,
+    ISNULL(u.user_lookups, 0) AS lookups,
+    ISNULL(u.user_updates, 0) AS updates,
+    s.total_size_MB,
+    s.used_size_MB,
+    s.unused_size_MB,
+    u.last_user_seek,
+    u.last_user_scan,
+    u.last_user_lookup,
+    CASE 
+        WHEN u.user_seeks IS NULL 
+          AND u.user_scans IS NULL 
+          AND u.user_lookups IS NULL 
+        THEN 'YES' ELSE 'NO' 
+    END AS is_abandoned
+FROM IndexSize s
+LEFT JOIN Usage u 
+    ON s.object_id = u.object_id 
+    AND s.index_id = u.index_id
+WHERE 
+    u.user_seeks IS NULL 
+    AND u.user_scans IS NULL 
+    AND u.user_lookups IS NULL
+ORDER BY s.total_size_MB DESC;
+
+
+
+
+
 
